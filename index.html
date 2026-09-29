@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/webp" href="{{ url_for('static', filename='sena_logo.webp') }}">
+<title>{{ nombre_ia }}</title>
+<style>
+    :root {
+        --verde: #8FB517;
+        --verde-oscuro: #6d8d12;
+        --verde-claro: #eef6da;
+        --blanco: #ffffff;
+        --texto: #2b2f22;
+        --gris-suave: #6b6f61;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: linear-gradient(160deg, var(--verde-claro), var(--blanco) 55%);
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .chat-container {
+        width: 420px;
+        max-width: 95vw;
+        height: 640px;
+        background: var(--blanco);
+        border-radius: 16px;
+        box-shadow: 0 10px 40px rgba(143, 181, 23, 0.25);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid #e3ecd0;
+    }
+    .chat-header {
+        background: var(--verde);
+        color: var(--blanco);
+        padding: 14px 18px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .chat-header .logo-badge {
+        flex: 0 0 auto;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: var(--blanco);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        padding: 4px;
+    }
+    .chat-header .logo-badge img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+    .chat-header .titulos {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.15;
+    }
+    .chat-header .titulos strong {
+        font-size: 1.05em;
+        letter-spacing: 0.5px;
+    }
+    .chat-header .titulos small {
+        font-size: 0.72em;
+        opacity: 0.9;
+    }
+    .chat-messages {
+        flex: 1;
+        padding: 16px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: var(--blanco);
+    }
+    .msg-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        max-width: 88%;
+    }
+    .msg-row.bot { align-self: flex-start; }
+    .msg-row.user { align-self: flex-end; flex-direction: row-reverse; }
+
+    .avatar {
+        flex: 0 0 auto;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }
+    .msg-row.bot .avatar {
+        background: var(--verde);
+    }
+    .msg-row.user .avatar {
+        background: #dfe8c8;
+    }
+
+    .msg {
+        padding: 10px 14px;
+        border-radius: 14px;
+        line-height: 1.4;
+        font-size: 0.95em;
+        white-space: pre-wrap;
+    }
+    .msg.bot {
+        background: var(--verde-claro);
+        color: var(--texto);
+        border-bottom-left-radius: 4px;
+        border: 1px solid #e3ecd0;
+    }
+    .msg.user {
+        background: var(--verde);
+        color: var(--blanco);
+        border-bottom-right-radius: 4px;
+    }
+
+    /* Botones de categorías (menú rápido) */
+    .quick-replies {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 2px 0 4px 34px;
+        max-width: 88%;
+    }
+    .quick-btn {
+        background: var(--blanco);
+        color: var(--verde-oscuro);
+        border: 1px solid var(--verde);
+        border-radius: 14px;
+        padding: 6px 12px;
+        font-size: 0.8em;
+        cursor: pointer;
+    }
+    .quick-btn:hover { background: var(--verde-claro); }
+
+    .chat-input {
+        display: flex;
+        border-top: 1px solid #e3ecd0;
+    }
+    .chat-input input {
+        flex: 1;
+        padding: 14px;
+        border: none;
+        outline: none;
+        background: var(--blanco);
+        color: var(--texto);
+        font-size: 1em;
+    }
+    .chat-input input::placeholder { color: var(--gris-suave); }
+    .chat-input button {
+        background: var(--verde);
+        color: var(--blanco);
+        border: none;
+        padding: 0 22px;
+        cursor: pointer;
+        font-size: 1em;
+        font-weight: 600;
+    }
+    .chat-input button:hover:not(:disabled) { background: var(--verde-oscuro); }
+    .chat-input button:disabled { opacity: 0.5; cursor: default; }
+    .typing { opacity: 0.7; font-style: italic; }
+
+    /* Puntos animados mientras Dahian "piensa" */
+    .typing-dots {
+        display: inline-flex;
+        gap: 4px;
+    }
+    .typing-dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--verde);
+        animation: bounce 1.2s infinite ease-in-out;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes bounce {
+        0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+        30% { transform: translateY(-4px); opacity: 1; }
+    }
+
+    /* Scrollbar discreta */
+    .chat-messages::-webkit-scrollbar { width: 6px; }
+    .chat-messages::-webkit-scrollbar-thumb { background: #cfe0a3; border-radius: 6px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <div class="logo-badge">
+            <img src="{{ url_for('static', filename='sena_logo.webp') }}" alt="Logo SENA">
+        </div>
+        <div class="titulos">
+            <strong>{{ nombre_ia }}</strong>
+            <small>Tienda · Centro de Biotecnología Agropecuaria (SENA)</small>
+        </div>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+        <div class="msg-row bot">
+            <div class="avatar">🌱</div>
+            <div class="msg bot">{{ mensaje_inicial }}</div>
+        </div>
+        <div class="quick-replies" id="opcionesIniciales">
+            {% for categoria in categorias %}
+            <button class="quick-btn" onclick="enviarRapido('{{ categoria }}')">{{ categoria }}</button>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="chat-input">
+        <input type="text" id="userInput" placeholder="Escribe tu pregunta..." autofocus>
+        <button id="sendBtn" onclick="enviarMensaje()">Enviar</button>
+    </div>
+</div>
+
+<script>
+    const chatMessages = document.getElementById('chatMessages');
+    const userInput = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    let enviando = false; // evita que un doble clic o doble Enter duplique el mensaje
+    // Guarda los botones de "menú rápido" mostrados más recientemente, para
+    // quitarlos en cuanto se envía un mensaje (así no quedan botones viejos
+    // y ya inválidos flotando en la conversación, como un menú de IVR/EPS
+    // que avanza de paso en paso).
+    let opcionesActuales = document.getElementById('opcionesIniciales');
+
+    userInput.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') enviarMensaje();
+    });
+
+    function agregarMensaje(texto, tipo) {
+        // tipo es 'bot' o 'user'
+        const row = document.createElement('div');
+        row.className = 'msg-row ' + tipo;
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = tipo === 'user' ? '🙂' : '🌱';
+
+        const burbuja = document.createElement('div');
+        burbuja.className = 'msg ' + tipo;
+        burbuja.textContent = texto;
+
+        row.appendChild(avatar);
+        row.appendChild(burbuja);
+        chatMessages.appendChild(row);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return burbuja;
+    }
+
+    function agregarEscribiendo() {
+        const row = document.createElement('div');
+        row.className = 'msg-row bot';
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = '🌱';
+
+        const burbuja = document.createElement('div');
+        burbuja.className = 'msg bot typing';
+        burbuja.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+
+        row.appendChild(avatar);
+        row.appendChild(burbuja);
+        chatMessages.appendChild(row);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return burbuja;
+    }
+
+    function quitarOpcionesActuales() {
+        if (opcionesActuales) {
+            opcionesActuales.remove();
+            opcionesActuales = null;
+        }
+    }
+
+    function agregarOpciones(opciones) {
+        if (!opciones || opciones.length === 0) return;
+        const contenedor = document.createElement('div');
+        contenedor.className = 'quick-replies';
+        opciones.forEach(function (texto) {
+            const boton = document.createElement('button');
+            boton.className = 'quick-btn';
+            boton.textContent = texto;
+            boton.onclick = function () { enviarRapido(texto); };
+            contenedor.appendChild(boton);
+        });
+        chatMessages.appendChild(contenedor);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        opcionesActuales = contenedor;
+    }
+
+    async function enviarTexto(texto) {
+        if (enviando) return;
+        if (!texto) return;
+
+        // Al enviar cualquier mensaje (escrito o por botón), quitamos el
+        // menú de opciones anterior para que no queden botones "viejos".
+        quitarOpcionesActuales();
+
+        enviando = true;
+        sendBtn.disabled = true;
+
+        agregarMensaje(texto, 'user');
+
+        const indicador = agregarEscribiendo();
+
+        try {
+            const res = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mensaje: texto })
+            });
+            const data = await res.json();
+            indicador.textContent = data.respuesta;
+            indicador.classList.remove('typing');
+            agregarOpciones(data.opciones);
+        } catch (err) {
+            indicador.textContent = 'Error al conectar con el servidor.';
+            indicador.classList.remove('typing');
+        } finally {
+            enviando = false;
+            sendBtn.disabled = false;
+            userInput.focus();
+        }
+    }
+
+    function enviarMensaje() {
+        const texto = userInput.value.trim();
+        if (!texto) return;
+        userInput.value = '';
+        enviarTexto(texto);
+    }
+
+    // Botones rápidos (categorías, productos, sí/no, cantidades...)
+    function enviarRapido(texto) {
+        enviarTexto(texto);
+    }
+</script>
+
+</body>
+</html>
