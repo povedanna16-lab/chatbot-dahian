@@ -628,6 +628,16 @@ def admin_actualizar_stock():
     return redirect(url_for("admin_panel"))
 
 
+@app.route("/admin/actualizar-precio", methods=["POST"])
+@requiere_login_admin
+def admin_actualizar_precio():
+    producto_id = request.form.get("producto_id", type=int)
+    nuevo_precio = request.form.get("nuevo_precio", type=int)
+    if producto_id is not None and nuevo_precio is not None:
+        tienda_db.actualizar_precio(producto_id, nuevo_precio)
+    return redirect(url_for("admin_panel"))
+
+
 @app.route("/admin/actualizar-pedido", methods=["POST"])
 @requiere_login_admin
 def admin_actualizar_pedido():
