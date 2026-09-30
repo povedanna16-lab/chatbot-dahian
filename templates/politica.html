@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Política de tratamiento de datos - {{ nombre_ia }}</title>
+<style>
+    :root {
+        --verde: #8FB517;
+        --verde-oscuro: #6d8d12;
+        --verde-claro: #eef6da;
+        --texto: #2b2f22;
+    }
+    body {
+        margin: 0;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: var(--verde-claro);
+        color: var(--texto);
+        display: flex;
+        justify-content: center;
+    }
+    .contenido {
+        max-width: 760px;
+        background: #ffffff;
+        margin: 30px 16px;
+        padding: 32px 40px;
+        border-radius: 12px;
+        box-shadow: 0 6px 24px rgba(143, 181, 23, 0.2);
+    }
+    h1 { color: var(--verde-oscuro); }
+    h2 { color: var(--verde-oscuro); font-size: 1.1em; margin-top: 28px; }
+    a { color: var(--verde-oscuro); }
+    .volver {
+        display: inline-block;
+        margin-top: 24px;
+        background: var(--verde);
+        color: #fff;
+        padding: 10px 18px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+    }
+</style>
+</head>
+<body>
+<div class="contenido">
+    <h1>Política de tratamiento de datos personales</h1>
+    <p>Centro de Biotecnología Agropecuaria — SENA. Chatbot "{{ nombre_ia }}"</p>
+
+    <h2>1. Responsable del tratamiento</h2>
+    <p>El Servicio Nacional de Aprendizaje (SENA), a través del Centro de Biotecnología
+    Agropecuaria, es el responsable del tratamiento de los datos personales que los
+    usuarios entregan voluntariamente al chatbot "{{ nombre_ia }}" para gestionar un
+    pedido de productos de la tienda del Centro.</p>
+
+    <h2>2. Datos que se recolectan</h2>
+    <p>Cuando decides registrar un pedido, el chatbot solicita: tu nombre y un dato de
+    contacto (número de teléfono/WhatsApp y/o correo electrónico), únicamente con el
+    fin de que un asesor del Centro pueda comunicarse contigo para confirmar la
+    entrega del pedido.</p>
+
+    <h2>3. Finalidad</h2>
+    <p>Los datos suministrados se usan exclusivamente para: (a) registrar el pedido en
+    la base de datos de la tienda, y (b) permitir que un asesor del Centro se
+    comunique contigo para confirmar la entrega. No se usan con fines comerciales,
+    publicitarios ni se comparten con terceros.</p>
+
+    <h2>4. Marco legal</h2>
+    <p>Este tratamiento se realiza en cumplimiento de la Ley 1581 de 2012 y el Decreto
+    1377 de 2013 de la República de Colombia, que regulan la protección de datos
+    personales (derecho de Habeas Data).</p>
+
+    <h2>5. Derechos del titular</h2>
+    <p>Como titular de tus datos, tienes derecho a conocer, actualizar, rectificar y
+    solicitar la supresión de tu información, así como a revocar la autorización
+    otorgada, contactando directamente al Centro de Biotecnología Agropecuaria.</p>
+
+    <h2>6. Autorización</h2>
+    <p>Antes de registrar cualquier pedido, el chatbot solicita expresamente tu
+    autorización para el tratamiento de tus datos personales conforme a esta
+    política. Si no autorizas, el pedido no se registra ni se guarda tu información.</p>
+
+    <a class="volver" href="/">← Volver al chatbot</a>
+</div>
+</body>
+</html>

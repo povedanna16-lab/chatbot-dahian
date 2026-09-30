@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel administrativo - {{ nombre_ia }}</title>
+<style>
+    :root {
+        --verde: #8FB517;
+        --verde-oscuro: #6d8d12;
+        --verde-claro: #eef6da;
+        --texto: #2b2f22;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: var(--verde-claro);
+        color: var(--texto);
+        padding: 24px;
+    }
+    header {
+        background: var(--verde);
+        color: #fff;
+        padding: 18px 24px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+    }
+    header h1 { margin: 0; font-size: 1.4em; }
+    header p { margin: 4px 0 0; opacity: .9; font-size: .9em; }
+    .panel {
+        background: #fff;
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 4px 16px rgba(143,181,23,0.15);
+        overflow-x: auto;
+    }
+    .panel h2 {
+        color: var(--verde-oscuro);
+        margin-top: 0;
+        border-bottom: 2px solid var(--verde-claro);
+        padding-bottom: 8px;
+    }
+    table { border-collapse: collapse; width: 100%; font-size: .92em; }
+    th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }
+    th { background: var(--verde-claro); color: var(--verde-oscuro); }
+    tr:hover { background: #fafdf3; }
+    input[type=number], select {
+        padding: 5px 8px;
+        border: 1px solid #cfd9b6;
+        border-radius: 6px;
+        width: 90px;
+    }
+    select { width: auto; }
+    button {
+        background: var(--verde);
+        color: #fff;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+    }
+    button:hover { background: var(--verde-oscuro); }
+    .estado {
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: .82em;
+        font-weight: 600;
+        color: #fff;
+    }
+    .estado.Pendiente { background: #c98a1a; }
+    .estado.Entregado { background: var(--verde-oscuro); }
+    .agotado { color: #b03030; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>Panel administrativo — {{ nombre_ia }}</h1>
+    <p>Centro de Biotecnología Agropecuaria (SENA) · Pedidos e inventario en tiempo real</p>
+</header>
+
+<div class="panel">
+    <h2>Pedidos registrados ({{ pedidos|length }})</h2>
+    {% if pedidos %}
+    <table>
+        <tr>
+            <th>#</th><th>Fecha</th><th>Cliente</th><th>Contacto</th>
+            <th>Producto</th><th>Cant.</th><th>Total</th><th>Estado</th><th>Acción</th>
+        </tr>
+        {% for pedido in pedidos %}
+        <tr>
+            <td>{{ pedido.id }}</td>
+            <td>{{ pedido.fecha }}</td>
+            <td>{{ pedido.cliente_nombre }}</td>
+            <td>{{ pedido.cliente_contacto }}</td>
+            <td>{{ pedido.producto_nombre }}</td>
+            <td>{{ pedido.cantidad }}</td>
+            <td>${{ "{:,.0f}".format(pedido.total).replace(",", ".") }}</td>
+            <td><span class="estado {{ pedido.estado }}">{{ pedido.estado }}</span></td>
+            <td>
+                <form method="post" action="/admin/actualizar-pedido" style="display:flex; gap:6px;">
+                    <input type="hidden" name="pedido_id" value="{{ pedido.id }}">
+                    <select name="nuevo_estado">
+                        <option value="Pendiente" {% if pedido.estado == "Pendiente" %}selected{% endif %}>Pendiente</option>
+                        <option value="Entregado" {% if pedido.estado == "Entregado" %}selected{% endif %}>Entregado</option>
+                    </select>
+                    <button type="submit">Guardar</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>Todavía no hay pedidos registrados.</p>
+    {% endif %}
+</div>
+
+<div class="panel">
+    <h2>Inventario de productos ({{ productos|length }})</h2>
+    <table>
+        <tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Acción</th></tr>
+        {% for p in productos %}
+        <tr>
+            <td>{{ p.nombre }}</td>
+            <td>{{ p.categoria }}</td>
+            <td>${{ "{:,.0f}".format(p.precio).replace(",", ".") }}</td>
+            <td class="{{ 'agotado' if p.stock == 0 else '' }}">{{ p.stock }}</td>
+            <td>
+                <form method="post" action="/admin/actualizar-stock" style="display:flex; gap:6px;">
+                    <input type="hidden" name="producto_id" value="{{ p.id }}">
+                    <input type="number" name="nuevo_stock" min="0" value="{{ p.stock }}">
+                    <button type="submit">Actualizar</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+</body>
+</html>
