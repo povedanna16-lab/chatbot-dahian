@@ -82,15 +82,14 @@
     <p>Centro de Biotecnología Agropecuaria (SENA) · Pedidos e inventario en tiempo real</p>
 </header>
 
-<div class="panel">
-    <h2>Pedidos registrados ({{ pedidos|length }})</h2>
-    {% if pedidos %}
+{% macro tabla_pedidos(lista) %}
+    {% if lista %}
     <table>
         <tr>
             <th>#</th><th>Fecha</th><th>Cliente</th><th>Contacto</th>
             <th>Productos</th><th>Total</th><th>Entrega</th><th>Medio de pago</th><th>Estado</th><th>Acción</th>
         </tr>
-        {% for pedido in pedidos %}
+        {% for pedido in lista %}
         <tr>
             <td>{{ pedido.id }}</td>
             <td>{{ pedido.fecha }}</td>
@@ -122,21 +121,46 @@
         {% endfor %}
     </table>
     {% else %}
-    <p>Todavía no hay pedidos registrados.</p>
+    <p>No hay pedidos en esta categoría.</p>
     {% endif %}
+{% endmacro %}
+
+{% set pedidos_pendientes = pedidos | selectattr("estado", "equalto", "Pendiente") | list %}
+{% set pedidos_domicilio = pedidos | selectattr("estado", "equalto", "Entregado") | selectattr("tipo_entrega", "equalto", "Domicilio") | list %}
+{% set pedidos_recogido = pedidos | selectattr("estado", "equalto", "Entregado") | rejectattr("tipo_entrega", "equalto", "Domicilio") | list %}
+
+<div class="panel">
+    <h2>Pedidos pendientes ({{ pedidos_pendientes|length }})</h2>
+    {{ tabla_pedidos(pedidos_pendientes) }}
+</div>
+
+<div class="panel">
+    <h2>Pedidos entregados a domicilio ({{ pedidos_domicilio|length }})</h2>
+    {{ tabla_pedidos(pedidos_domicilio) }}
+</div>
+
+<div class="panel">
+    <h2>Pedidos entregados — recogidos en el Centro ({{ pedidos_recogido|length }})</h2>
+    {{ tabla_pedidos(pedidos_recogido) }}
 </div>
 
 <div class="panel">
     <h2>Inventario de productos ({{ productos|length }})</h2>
     <table>
-        <tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Acción</th></tr>
+        <tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th></tr>
         {% for p in productos %}
         <tr>
             <td>{{ p.nombre }}</td>
             <td>{{ p.categoria }}</td>
-            <td>${{ "{:,.0f}".format(p.precio).replace(",", ".") }}</td>
-            <td class="{{ 'agotado' if p.stock == 0 else '' }}">{{ p.stock }}</td>
             <td>
+                <form method="post" action="/admin/actualizar-precio" style="display:flex; gap:6px; align-items:center;">
+                    <input type="hidden" name="producto_id" value="{{ p.id }}">
+                    <span>$</span>
+                    <input type="number" name="nuevo_precio" min="0" value="{{ p.precio }}">
+                    <button type="submit">Guardar</button>
+                </form>
+            </td>
+            <td class="{{ 'agotado' if p.stock == 0 else '' }}">
                 <form method="post" action="/admin/actualizar-stock" style="display:flex; gap:6px;">
                     <input type="hidden" name="producto_id" value="{{ p.id }}">
                     <input type="number" name="nuevo_stock" min="0" value="{{ p.stock }}">
