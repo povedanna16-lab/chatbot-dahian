@@ -296,6 +296,43 @@ def actualizar_estado_pedido(pedido_id, nuevo_estado):
     conexion.close()
 
 
+def obtener_pedido(pedido_id):
+    """Devuelve un pedido puntual (con sus items) por id, o None si no existe."""
+    conexion = conectar()
+    fila = conexion.execute("SELECT * FROM pedidos WHERE id = ?", (pedido_id,)).fetchone()
+    if not fila:
+        conexion.close()
+        return None
+    pedido = dict(fila)
+    filas_items = conexion.execute(
+        "SELECT * FROM pedido_items WHERE pedido_id = ?", (pedido_id,)
+    ).fetchall()
+    pedido["items"] = [dict(f) for f in filas_items]
+    conexion.close()
+    return pedido
+
+
+def actualizar_pedido_completo(pedido_id, cliente_nombre, cliente_contacto, tipo_entrega,
+                                municipio_domicilio, direccion_domicilio, barrio_domicilio,
+                                medio_pago, estado):
+    """Actualiza todos los datos editables de un pedido desde el panel administrativo."""
+    conexion = conectar()
+    conexion.execute(
+        """
+        UPDATE pedidos
+        SET cliente_nombre = ?, cliente_contacto = ?, tipo_entrega = ?, municipio_domicilio = ?,
+            direccion_domicilio = ?, barrio_domicilio = ?, medio_pago = ?, estado = ?
+        WHERE id = ?
+        """,
+        (
+            cliente_nombre, cliente_contacto, tipo_entrega, municipio_domicilio,
+            direccion_domicilio, barrio_domicilio, medio_pago, estado, pedido_id,
+        ),
+    )
+    conexion.commit()
+    conexion.close()
+
+
 def actualizar_stock(producto_id, nuevo_stock):
     """Actualiza manualmente el stock de un producto (usado desde el panel administrativo)."""
     conexion = conectar()
