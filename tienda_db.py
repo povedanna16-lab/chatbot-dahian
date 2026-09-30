@@ -153,27 +153,54 @@ def inicializar_db():
             descripcion TEXT
         )
     """)
-    # Tabla real de pedidos: cada pedido que hace un cliente por el chat se
-    # guarda aquí (persistencia real en la base de datos relacional, no en
-    # una lista en memoria ni en el código). Incluye datos de contacto
-    # (teléfono/WhatsApp y/o correo) para que un asesor pueda comunicarse
-    # con el cliente, y el registro de que aceptó el tratamiento de datos
-    # (Ley 1581 de 2012 / Habeas Data) antes de guardar su información.
+    # Tabla de pedidos (encabezado): cada pedido que hace un cliente por el
+    # chat se guarda aquí (persistencia real en la base de datos relacional,
+    # no en una lista en memoria ni en el código). Un pedido puede tener
+    # VARIOS productos (carrito de compras), guardados en 'pedido_items'.
+    # Incluye datos de contacto (teléfono/WhatsApp y/o correo) para que un
+    # asesor pueda comunicarse con el cliente, el registro de que aceptó el
+    # tratamiento de datos (Ley 1581 de 2012 / Habeas Data), el tipo de
+    # entrega/domicilio y el medio de pago elegido.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pedidos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            producto_id INTEGER NOT NULL,
-            producto_nombre TEXT NOT NULL,
-            cantidad INTEGER NOT NULL,
             total INTEGER NOT NULL,
             cliente_nombre TEXT NOT NULL,
             cliente_contacto TEXT NOT NULL,
             acepto_tratamiento_datos INTEGER NOT NULL DEFAULT 0,
+            tipo_entrega TEXT NOT NULL DEFAULT 'Recoge en el Centro',
+            municipio_domicilio TEXT,
+            medio_pago TEXT,
             estado TEXT NOT NULL DEFAULT 'Pendiente',
-            fecha TEXT NOT NULL,
+            fecha TEXT NOT NULL
+        )
+    """)
+    # Líneas del pedido: un producto y su cantidad dentro de un pedido/carrito.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pedido_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pedido_id INTEGER NOT NULL,
+            producto_id INTEGER NOT NULL,
+            producto_nombre TEXT NOT NULL,
+            cantidad INTEGER NOT NULL,
+            precio_unitario INTEGER NOT NULL,
+            subtotal INTEGER NOT NULL,
+            FOREIGN KEY (pedido_id) REFERENCES pedidos (id),
             FOREIGN KEY (producto_id) REFERENCES productos (id)
         )
     """)
+    # Migraciones simples: si 'pedidos' ya existía de una versión anterior
+    # (sin domicilio o sin medio de pago), agregamos las columnas sin
+    # perder los pedidos ya registrados.
+    columnas_pedidos = {fila["name"] for fila in cursor.execute("PRAGMA table_info(pedidos)").fetchall()}
+    if "tipo_entrega" not in columnas_pedidos:
+        cursor.execute("ALTER TABLE pedidos ADD COLUMN tipo_entrega TEXT NOT NULL DEFAULT 'Recoge en el Centro'")
+    if "municipio_domicilio" not in columnas_pedidos:
+        cursor.execute("ALTER TABLE pedidos ADD COLUMN municipio_domicilio TEXT")
+    if "medio_pago" not in columnas_pedidos:
+        cursor.execute("ALTER TABLE pedidos ADD COLUMN medio_pago TEXT")
+    conexion.commit()
+
     cursor.execute("SELECT COUNT(*) FROM productos")
     total = cursor.fetchone()[0]
     if total == 0:
@@ -185,43 +212,71 @@ def inicializar_db():
     conexion.close()
 
 
-def crear_pedido(producto_id, producto_nombre, cantidad, total, cliente_nombre, cliente_contacto):
+def crear_pedido(items, cliente_nombre, cliente_contacto, tipo_entrega="Recoge en el Centro",
+                  municipio_domicilio=None, medio_pago=None):
     """
-    Guarda un pedido real en la base de datos (tabla 'pedidos') y descuenta
-    la cantidad pedida del stock del producto, para que el inventario
-    refleje la venta. Devuelve el id del pedido creado.
+    Guarda un pedido real (con uno o varios productos, es decir un carrito
+    de compras) en la base de datos: un registro en 'pedidos' (encabezado)
+    y un registro en 'pedido_items' por cada producto. Descuenta el stock
+    de cada producto pedido. 'items' es una lista de diccionarios con
+    producto_id, producto_nombre, cantidad y precio_unitario.
+    Devuelve el id del pedido creado.
     """
     import datetime
+    total = sum(item["cantidad"] * item["precio_unitario"] for item in items)
+
     conexion = conectar()
     cursor = conexion.cursor()
     cursor.execute(
         """
         INSERT INTO pedidos
-            (producto_id, producto_nombre, cantidad, total, cliente_nombre,
-             cliente_contacto, acepto_tratamiento_datos, estado, fecha)
-        VALUES (?, ?, ?, ?, ?, ?, 1, 'Pendiente', ?)
+            (total, cliente_nombre, cliente_contacto, acepto_tratamiento_datos,
+             tipo_entrega, municipio_domicilio, medio_pago, estado, fecha)
+        VALUES (?, ?, ?, 1, ?, ?, ?, 'Pendiente', ?)
         """,
         (
-            producto_id, producto_nombre, cantidad, total, cliente_nombre,
-            cliente_contacto, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            total, cliente_nombre, cliente_contacto, tipo_entrega, municipio_domicilio,
+            medio_pago, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         ),
     )
     pedido_id = cursor.lastrowid
-    cursor.execute(
-        "UPDATE productos SET stock = MAX(stock - ?, 0) WHERE id = ?",
-        (cantidad, producto_id),
-    )
+
+    for item in items:
+        subtotal = item["cantidad"] * item["precio_unitario"]
+        cursor.execute(
+            """
+            INSERT INTO pedido_items
+                (pedido_id, producto_id, producto_nombre, cantidad, precio_unitario, subtotal)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (pedido_id, item["producto_id"], item["producto_nombre"], item["cantidad"],
+             item["precio_unitario"], subtotal),
+        )
+        cursor.execute(
+            "UPDATE productos SET stock = MAX(stock - ?, 0) WHERE id = ?",
+            (item["cantidad"], item["producto_id"]),
+        )
+
     conexion.commit()
     conexion.close()
     return pedido_id
 
 
 def obtener_pedidos():
-    """Devuelve todos los pedidos registrados, del más reciente al más antiguo."""
+    """
+    Devuelve todos los pedidos registrados (del más reciente al más
+    antiguo), cada uno con su lista de productos ('items') incluida.
+    """
     conexion = conectar()
-    filas = conexion.execute("SELECT * FROM pedidos ORDER BY id DESC").fetchall()
+    filas_pedidos = conexion.execute("SELECT * FROM pedidos ORDER BY id DESC").fetchall()
+    pedidos = [dict(f) for f in filas_pedidos]
+    for pedido in pedidos:
+        filas_items = conexion.execute(
+            "SELECT * FROM pedido_items WHERE pedido_id = ?", (pedido["id"],)
+        ).fetchall()
+        pedido["items"] = [dict(f) for f in filas_items]
     conexion.close()
-    return [dict(f) for f in filas]
+    return pedidos
 
 
 def actualizar_estado_pedido(pedido_id, nuevo_estado):

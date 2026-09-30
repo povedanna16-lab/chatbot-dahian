@@ -234,7 +234,11 @@ def _detalle_producto(p):
             f"'{p['categoria']}' o de otra?"
         )
         opciones = [p["categoria"]] + [c for c in db.obtener_categorias() if c != p["categoria"]]
-        return respuesta, None, opciones
+        # Dejamos un estado activo (aunque no sea un pedido) para que si el
+        # usuario responde con un simple "sí"/"no" a esta pregunta, no se
+        # pierda el contexto ni caiga en una búsqueda genérica sin relación.
+        estado = {"paso": "producto_agotado", "categoria": p["categoria"]}
+        return respuesta, estado, opciones
 
     respuesta = (
         f"{p['nombre']} ({p['categoria']})\n"
@@ -300,15 +304,120 @@ def _iniciar_flujo_compra(texto_normalizado):
             "¿Quieres que te muestre otro producto parecido de la misma categoría?"
         ), None, _opciones_categorias()
 
-    estado = {"paso": "cantidad", "producto_id": producto["id"], "producto_nombre": producto["nombre"]}
+    estado = {
+        "paso": "cantidad", "producto_id": producto["id"], "producto_nombre": producto["nombre"],
+        "items": [],
+    }
     return (
         f"Perfecto, '{producto['nombre']}' cuesta {db.formatear_precio(producto['precio'])} "
         f"y tenemos {producto['stock']} unidades disponibles. ¿Cuántas unidades quieres pedir?"
     ), estado, ["1", "2", "3", "5", "10"]
 
 
+HORARIO_ATENCION = "8:00 a.m. a 6:00 p.m"
+
+# Medios de pago aceptados. El emoji funciona como "logo" del medio de pago
+# dentro del chat (no usamos los logotipos oficiales de las marcas, por
+# temas de derechos de marca, pero cada opción se distingue visualmente).
+MEDIOS_PAGO = [
+    ("💳 Tarjeta de crédito", ["tarjeta de credito", "tarjeta credito", "credito"]),
+    ("💳 Tarjeta débito", ["tarjeta de debito", "tarjeta debito", "debito"]),
+    ("📱 Nequi", ["nequi"]),
+    ("📱 Daviplata", ["daviplata", "davi plata"]),
+    ("💵 Efectivo contraentrega", ["efectivo", "contraentrega", "contra entrega"]),
+]
+
+
+def _opciones_medios_pago():
+    return [etiqueta for etiqueta, _ in MEDIOS_PAGO]
+
+
+def _detectar_medio_pago(texto_normalizado):
+    for etiqueta, claves in MEDIOS_PAGO:
+        if any(clave in texto_normalizado for clave in claves):
+            return etiqueta
+    return None
+
+
+def _texto_carrito(items):
+    if not items:
+        return "Tu carrito está vacío."
+    partes = ["Tu carrito:"]
+    total = 0
+    for it in items:
+        subtotal = it["cantidad"] * it["precio_unitario"]
+        total += subtotal
+        partes.append(f"• {it['cantidad']} x {it['producto_nombre']} — {db.formatear_precio(subtotal)}")
+    partes.append(f"Total del carrito: {db.formatear_precio(total)}")
+    return "\n".join(partes)
+
+
+def _finalizar_pedido(estado, tipo_entrega, municipio_domicilio, medio_pago):
+    """
+    Guarda el pedido ya completo (con el carrito, datos de contacto,
+    entrega y medio de pago) en la base de datos y arma el resumen final,
+    incluyendo el horario de atención y despacho del Centro.
+    """
+    items = estado["items"]
+    total = sum(it["cantidad"] * it["precio_unitario"] for it in items)
+    pedido_id = db.crear_pedido(
+        items=items,
+        cliente_nombre=estado["cliente_nombre"],
+        cliente_contacto=estado["cliente_contacto"],
+        tipo_entrega=tipo_entrega,
+        municipio_domicilio=municipio_domicilio,
+        medio_pago=medio_pago,
+    )
+    linea_entrega = (
+        f"• Entrega: Domicilio en {municipio_domicilio} (Cundinamarca)"
+        if tipo_entrega == "Domicilio"
+        else "• Entrega: Recoge en el Centro de Biotecnología Agropecuaria"
+    )
+    lineas_items = "\n".join(
+        f"  - {it['cantidad']} x {it['producto_nombre']} — "
+        f"{db.formatear_precio(it['cantidad'] * it['precio_unitario'])}"
+        for it in items
+    )
+    resumen = (
+        f"Pedido #{pedido_id} registrado:\n"
+        f"• Cliente: {estado['cliente_nombre']}\n"
+        f"• Contacto: {estado['cliente_contacto']}\n"
+        f"• Productos:\n{lineas_items}\n"
+        f"• Total: {db.formatear_precio(total)}\n"
+        f"{linea_entrega}\n"
+        f"• Medio de pago: {medio_pago}\n"
+        f"Horario de atención y despacho de pedidos: {HORARIO_ATENCION}.\n"
+        "Un asesor del Centro de Biotecnología Agropecuaria se comunicará contigo para "
+        "confirmar la entrega. ¿Deseas consultar otro producto?"
+    )
+    nuevo_estado = {"paso": "post_pedido"}
+    return resumen, nuevo_estado, ["Sí", "No"]
+
+
+def _pedir_medio_pago(estado, tipo_entrega, municipio_domicilio):
+    """Guarda cómo se hará la entrega y pregunta el medio de pago antes de finalizar."""
+    nuevo_estado = dict(estado)
+    nuevo_estado["paso"] = "medio_pago"
+    nuevo_estado["tipo_entrega"] = tipo_entrega
+    nuevo_estado["municipio_domicilio"] = municipio_domicilio
+    opciones_pago = _opciones_medios_pago()
+    return (
+        "¿Cómo prefieres pagar? Opciones: " + ", ".join(opciones_pago)
+    ), nuevo_estado, opciones_pago
+
+
 def _continuar_flujo_compra(texto_original, estado):
     paso = estado.get("paso")
+
+    # Salida de emergencia: en cualquier paso del pedido, el cliente puede
+    # cancelar y volver a una conversación normal (por ejemplo, si el
+    # carrito quedó vacío tras quitar el único producto, o simplemente
+    # cambió de opinión).
+    texto_cancelar = _normalizar(texto_original).strip(" .!¡,")
+    if texto_cancelar in ("cancelar", "cancelar pedido", "cancelar compra", "salir", "salir del pedido"):
+        return (
+            "Listo, cancelé el pedido en curso. ¿En qué más te puedo ayudar?"
+        ), None, _opciones_categorias()
 
     if paso == "confirmar_compra":
         texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
@@ -321,7 +430,10 @@ def _continuar_flujo_compra(texto_original, estado):
             if not fila or fila["stock"] <= 0:
                 return "Lo siento, ese producto ya no está disponible. ¿Quieres ver otro?", None, _opciones_categorias()
             producto = dict(fila)
-            nuevo_estado = {"paso": "cantidad", "producto_id": producto["id"], "producto_nombre": producto["nombre"]}
+            nuevo_estado = {
+                "paso": "cantidad", "producto_id": producto["id"], "producto_nombre": producto["nombre"],
+                "items": estado.get("items", []),
+            }
             return (
                 f"¿Cuántas unidades de '{producto['nombre']}' quieres pedir? "
                 f"(tenemos {producto['stock']} disponibles)"
@@ -356,18 +468,117 @@ def _continuar_flujo_compra(texto_original, estado):
                 "¿Qué cantidad (igual o menor) quieres pedir?"
             ), estado, None
 
-        total = cantidad * producto["precio"]
-        nuevo_estado = {
-            "paso": "consentimiento",
+        item = {
             "producto_id": producto["id"],
             "producto_nombre": producto["nombre"],
             "cantidad": cantidad,
-            "total": total,
+            "precio_unitario": producto["precio"],
         }
+        items = list(estado.get("items", []))
+        items.append(item)
+        nuevo_estado = {"paso": "carrito", "items": items}
+        subtotal = cantidad * producto["precio"]
         return (
-            f"Anotado: {cantidad} unidad(es) de '{producto['nombre']}' — total {db.formatear_precio(total)}.\n"
-            + AVISO_TRATAMIENTO_DATOS
-        ), nuevo_estado, ["Sí, autorizo", "No autorizo"]
+            f"Agregado al carrito: {cantidad} unidad(es) de '{producto['nombre']}' — "
+            f"{db.formatear_precio(subtotal)}.\n"
+            + _texto_carrito(items)
+            + "\n¿Quieres agregar otro producto, quitar alguno del carrito, o finalizar el pedido?"
+        ), nuevo_estado, ["Agregar otro producto", "Finalizar pedido"]
+
+    if paso == "carrito":
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+        items = estado.get("items", [])
+
+        if "agregar" in texto_normalizado:
+            nuevo_estado = {"paso": "carrito_agregar", "items": items}
+            categorias = ", ".join(db.obtener_categorias())
+            return (
+                f"¿Qué otro producto quieres agregar al carrito? Categorías: {categorias}."
+            ), nuevo_estado, _opciones_categorias()
+
+        if "quitar" in texto_normalizado or "eliminar" in texto_normalizado or "remover" in texto_normalizado:
+            # Buscamos la coincidencia SOLO entre los productos que ya están
+            # en el carrito (no en todo el catálogo), para no confundir un
+            # producto similar que el cliente no ha pedido (ej. "Huevo A" vs
+            # "Huevo AAA").
+            tokens_texto = _tokenizar(texto_normalizado)
+            item_a_quitar = None
+            mejor_coincidencias = 0
+            for it in items:
+                nombre_norm = _normalizar(it["producto_nombre"])
+                palabras_nombre = [
+                    w for w in re.findall(r"[a-z0-9]+", nombre_norm)
+                    if len(w) >= 4 or re.fullmatch(r"a{2,3}", w)
+                ]
+                coincidencias = len([w for w in palabras_nombre if w in tokens_texto])
+                if coincidencias > mejor_coincidencias:
+                    mejor_coincidencias = coincidencias
+                    item_a_quitar = it
+
+            if item_a_quitar:
+                nuevos_items = [it for it in items if it is not item_a_quitar]
+                if not nuevos_items:
+                    return (
+                        f"Listo, quité '{item_a_quitar['producto_nombre']}'. Tu carrito quedó vacío. "
+                        "¿Qué producto quieres agregar? (o escribe \"cancelar\" para salir del pedido)"
+                    ), {"paso": "carrito_agregar", "items": []}, _opciones_categorias()
+                nuevo_estado = {"paso": "carrito", "items": nuevos_items}
+                return (
+                    f"Listo, quité '{item_a_quitar['producto_nombre']}'.\n" + _texto_carrito(nuevos_items)
+                    + "\n¿Algo más?"
+                ), nuevo_estado, ["Agregar otro producto", "Finalizar pedido"]
+            return (
+                "No encontré ese producto en tu carrito.\n" + _texto_carrito(items)
+                + "\nEscribe el nombre del producto (tal como aparece arriba) que quieres quitar."
+            ), estado, ["Agregar otro producto", "Finalizar pedido"]
+
+        if "finalizar" in texto_normalizado or _es_si(texto_normalizado):
+            if not items:
+                return (
+                    "Tu carrito está vacío. ¿Qué producto quieres agregar?"
+                ), {"paso": "carrito_agregar", "items": []}, _opciones_categorias()
+            nuevo_estado = {"paso": "consentimiento", "items": items}
+            return (
+                _texto_carrito(items) + "\n" + AVISO_TRATAMIENTO_DATOS
+            ), nuevo_estado, ["Sí, autorizo", "No autorizo"]
+
+        return (
+            _texto_carrito(items)
+            + "\n¿Quieres agregar otro producto, quitar alguno, o finalizar el pedido?"
+        ), estado, ["Agregar otro producto", "Finalizar pedido"]
+
+    if paso == "carrito_agregar":
+        texto_normalizado = _normalizar(texto_original)
+        items = estado.get("items", [])
+
+        producto = _buscar_producto_mencionado(texto_normalizado)
+        if producto:
+            if producto["stock"] <= 0:
+                return (
+                    f"'{producto['nombre']}' está agotado por ahora. ¿Qué otro producto quieres agregar?"
+                ), estado, _opciones_categorias()
+            nuevo_estado = {
+                "paso": "cantidad", "producto_id": producto["id"], "producto_nombre": producto["nombre"],
+                "items": items,
+            }
+            return (
+                f"'{producto['nombre']}' cuesta {db.formatear_precio(producto['precio'])} y tenemos "
+                f"{producto['stock']} unidades disponibles. ¿Cuántas unidades quieres agregar?"
+            ), nuevo_estado, ["1", "2", "3", "5", "10"]
+
+        categoria = _categoria_mencionada(texto_normalizado)
+        if categoria:
+            productos = db.buscar_por_categoria(categoria)
+            respuesta, opciones = _listar_productos(productos, f"Esto tenemos en '{categoria}':")
+            if respuesta:
+                return respuesta, estado, opciones
+
+        categorias = ", ".join(db.obtener_categorias())
+        return (
+            f"No encontré ese producto. Estas son nuestras categorías: {categorias}. "
+            "¿Cuál te interesa?"
+        ), estado, _opciones_categorias()
 
     if paso == "consentimiento":
         texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
@@ -412,26 +623,70 @@ def _continuar_flujo_compra(texto_original, estado):
                 "teléfono/WhatsApp (mínimo 7 dígitos) o un correo electrónico."
             ), estado, None
 
-        pedido_id = db.crear_pedido(
-            producto_id=estado["producto_id"],
-            producto_nombre=estado["producto_nombre"],
-            cantidad=estado["cantidad"],
-            total=estado["total"],
-            cliente_nombre=estado["cliente_nombre"],
-            cliente_contacto=contacto,
+        nuevo_estado = dict(estado)
+        nuevo_estado["paso"] = "domicilio"
+        nuevo_estado["cliente_contacto"] = contacto
+        return (
+            "¿Deseas domicilio o prefieres recoger tu pedido en el Centro de Biotecnología "
+            "Agropecuaria? (Por ahora el domicilio solo está disponible en Mosquera y Funza, "
+            "Cundinamarca)."
+        ), nuevo_estado, ["Domicilio", "Recoger en el Centro"]
+
+    if paso == "domicilio":
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+
+        quiere_domicilio = "domicilio" in texto_normalizado or _es_si(texto_normalizado)
+        no_quiere = (
+            "recoger" in texto_normalizado or "recoge" in texto_normalizado
+            or "centro" in texto_normalizado or _es_no(texto_normalizado)
         )
-        resumen = (
-            f"Pedido #{pedido_id} registrado:\n"
-            f"• Cliente: {estado['cliente_nombre']}\n"
-            f"• Contacto: {contacto}\n"
-            f"• Producto: {estado['producto_nombre']}\n"
-            f"• Cantidad: {estado['cantidad']}\n"
-            f"• Total: {db.formatear_precio(estado['total'])}\n"
-            "Un asesor del Centro de Biotecnología Agropecuaria se comunicará contigo para "
-            "confirmar la entrega. ¿Deseas consultar otro producto?"
+
+        if quiere_domicilio and not no_quiere:
+            nuevo_estado = dict(estado)
+            nuevo_estado["paso"] = "municipio"
+            return (
+                "¿En qué municipio recibirías el pedido? Por ahora solo cubrimos domicilios en "
+                "Mosquera o Funza (Cundinamarca)."
+            ), nuevo_estado, ["Mosquera", "Funza"]
+
+        if no_quiere:
+            return _pedir_medio_pago(estado, "Recoge en el Centro", None)
+
+        return (
+            "No entendí tu respuesta. ¿Quieres domicilio (solo Mosquera o Funza) o prefieres "
+            "recoger tu pedido en el Centro?"
+        ), estado, ["Domicilio", "Recoger en el Centro"]
+
+    if paso == "municipio":
+        municipio_normalizado = _normalizar(texto_original).strip(" .!¡,")
+
+        if "mosquera" in municipio_normalizado:
+            return _pedir_medio_pago(estado, "Domicilio", "Mosquera")
+        if "funza" in municipio_normalizado:
+            return _pedir_medio_pago(estado, "Domicilio", "Funza")
+        if "recoger" in municipio_normalizado or "recoge" in municipio_normalizado or "centro" in municipio_normalizado:
+            return _pedir_medio_pago(estado, "Recoge en el Centro", None)
+
+        return (
+            "Por ahora solo hacemos domicilios en Mosquera o Funza (Cundinamarca). "
+            "¿Cuál de los dos, o prefieres recoger el pedido en el Centro?"
+        ), estado, ["Mosquera", "Funza", "Recoger en el Centro"]
+
+    if paso == "medio_pago":
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+        opciones_pago = _opciones_medios_pago()
+
+        medio = _detectar_medio_pago(texto_normalizado)
+        if not medio:
+            return (
+                "No reconocí ese medio de pago. Elige una opción: " + ", ".join(opciones_pago)
+            ), estado, opciones_pago
+
+        return _finalizar_pedido(
+            estado, estado.get("tipo_entrega"), estado.get("municipio_domicilio"), medio
         )
-        nuevo_estado = {"paso": "post_pedido"}
-        return resumen, nuevo_estado, ["Sí", "No"]
 
     if paso == "post_pedido":
         texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
@@ -446,6 +701,24 @@ def _continuar_flujo_compra(texto_original, estado):
         # No fue un sí/no claro: en vez de perder el contexto (y caer en una
         # búsqueda genérica sin relación), lo tratamos como una nueva
         # consulta de la tienda, por ejemplo el nombre de otro producto.
+        return responder_tienda(texto_original)
+
+    if paso == "producto_agotado":
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+
+        if _es_si(texto_normalizado):
+            productos = db.buscar_por_categoria(estado["categoria"])
+            respuesta, opciones = _listar_productos(productos, f"Esto tenemos en '{estado['categoria']}':")
+            if not respuesta:
+                return "No tengo más productos registrados en esa categoría.", None, _opciones_categorias()
+            return respuesta, None, opciones
+
+        if _es_no(texto_normalizado):
+            return "Entendido, aquí estaré si necesitas algo más.", None, None
+
+        # No fue un sí/no claro (por ejemplo, escribió el nombre de otra
+        # categoría o producto): lo tratamos como una nueva consulta.
         return responder_tienda(texto_original)
 
     return "¿En qué más te puedo ayudar con la tienda?", None, _opciones_categorias()
@@ -467,6 +740,11 @@ def mensaje_bienvenida():
     partes.extend(f"• {c}" for c in categorias)
     partes.append("")
     partes.append("Toca una categoría, o escríbeme el producto que buscas.")
+    partes.append(
+        f"Horario de atención y despacho de pedidos: {HORARIO_ATENCION} "
+        "Hacemos domicilios únicamente en Mosquera y Funza (Cundinamarca); en otros "
+        "municipios puedes recoger tu pedido en el Centro."
+    )
     partes.append(
         "Si registras un pedido, tus datos se tratan conforme a nuestra política de "
         "tratamiento de datos personales: /politica-privacidad"
