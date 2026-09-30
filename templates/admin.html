@@ -88,7 +88,7 @@
     <table>
         <tr>
             <th>#</th><th>Fecha</th><th>Cliente</th><th>Contacto</th>
-            <th>Producto</th><th>Cant.</th><th>Total</th><th>Estado</th><th>Acción</th>
+            <th>Productos</th><th>Total</th><th>Entrega</th><th>Medio de pago</th><th>Estado</th><th>Acción</th>
         </tr>
         {% for pedido in pedidos %}
         <tr>
@@ -96,9 +96,14 @@
             <td>{{ pedido.fecha }}</td>
             <td>{{ pedido.cliente_nombre }}</td>
             <td>{{ pedido.cliente_contacto }}</td>
-            <td>{{ pedido.producto_nombre }}</td>
-            <td>{{ pedido.cantidad }}</td>
+            <td>
+                {% for item in pedido['items'] %}
+                    {{ item.cantidad }} x {{ item.producto_nombre }}{% if not loop.last %}<br>{% endif %}
+                {% endfor %}
+            </td>
             <td>${{ "{:,.0f}".format(pedido.total).replace(",", ".") }}</td>
+            <td>{{ pedido.tipo_entrega }}{% if pedido.municipio_domicilio %} ({{ pedido.municipio_domicilio }}){% endif %}</td>
+            <td>{{ pedido.medio_pago or "—" }}</td>
             <td><span class="estado {{ pedido.estado }}">{{ pedido.estado }}</span></td>
             <td>
                 <form method="post" action="/admin/actualizar-pedido" style="display:flex; gap:6px;">
