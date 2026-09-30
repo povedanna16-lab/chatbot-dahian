@@ -648,6 +648,40 @@ def admin_actualizar_pedido():
     return redirect(url_for("admin_panel"))
 
 
+@app.route("/admin/pedido/<int:pedido_id>/editar")
+@requiere_login_admin
+def admin_editar_pedido(pedido_id):
+    pedido = tienda_db.obtener_pedido(pedido_id)
+    if not pedido:
+        return redirect(url_for("admin_panel"))
+    medios_pago = [etiqueta for etiqueta, _ in tienda_asistente.MEDIOS_PAGO]
+    return render_template(
+        "editar_pedido.html", nombre_ia=NOMBRE_IA, pedido=pedido, medios_pago=medios_pago,
+    )
+
+
+@app.route("/admin/pedido/<int:pedido_id>/guardar", methods=["POST"])
+@requiere_login_admin
+def admin_guardar_pedido(pedido_id):
+    cliente_nombre = request.form.get("cliente_nombre", "").strip()
+    cliente_contacto = request.form.get("cliente_contacto", "").strip()
+    tipo_entrega = request.form.get("tipo_entrega", "Recoge en el Centro")
+    municipio_domicilio = request.form.get("municipio_domicilio", "").strip() or None
+    direccion_domicilio = request.form.get("direccion_domicilio", "").strip() or None
+    barrio_domicilio = request.form.get("barrio_domicilio", "").strip() or None
+    medio_pago = request.form.get("medio_pago", "").strip() or None
+    estado = request.form.get("estado", "Pendiente")
+    if tipo_entrega != "Domicilio":
+        municipio_domicilio = None
+        direccion_domicilio = None
+        barrio_domicilio = None
+    tienda_db.actualizar_pedido_completo(
+        pedido_id, cliente_nombre, cliente_contacto, tipo_entrega, municipio_domicilio,
+        direccion_domicilio, barrio_domicilio, medio_pago, estado,
+    )
+    return redirect(url_for("admin_panel"))
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print(f" {NOMBRE_IA} iniciada.")
