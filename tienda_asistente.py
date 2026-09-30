@@ -615,11 +615,16 @@ def _continuar_flujo_compra(texto_original, estado):
             ), nuevo_estado, ["1", "2", "3", "5", "10"]
 
         if _es_no(texto_normalizado):
+            # Conforme a la Ley 1581 de 2012 (Habeas Data): si el titular no
+            # autoriza el tratamiento de sus datos, el pedido simplemente no
+            # se registra y NO se guarda ningún dato personal suyo (ni
+            # siquiera el nombre); se le informa esto de forma explícita.
+            nuevo_estado = {"paso": "post_rechazo_datos"}
             return (
-                "Sin tu autorización no puedo continuar con el pedido, ya que necesito guardar tu "
-                "nombre y contacto para que un asesor te confirme la entrega. "
-                "¿Quieres seguir viendo el catálogo de todas formas?"
-            ), None, _opciones_categorias()
+                "Entendido, no autorizas el tratamiento de tus datos personales. Conforme a la Ley "
+                "1581 de 2012 (Habeas Data), el pedido no queda registrado y no guardamos ningún "
+                "dato personal tuyo. ¿Quieres seguir viendo el catálogo de todas formas?"
+            ), nuevo_estado, ["Sí", "No"]
 
         return (
             "Para continuar necesito que confirmes si autorizas o no el tratamiento de tus datos "
@@ -767,6 +772,19 @@ def _continuar_flujo_compra(texto_original, estado):
         # No fue un sí/no claro: en vez de perder el contexto (y caer en una
         # búsqueda genérica sin relación), lo tratamos como una nueva
         # consulta de la tienda, por ejemplo el nombre de otro producto.
+        return responder_tienda(texto_original)
+
+    if paso == "post_rechazo_datos":
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+
+        if _es_si(texto_normalizado):
+            return mensaje_bienvenida(), None, _opciones_categorias()
+
+        if _es_no(texto_normalizado):
+            return "Entendido, aquí estaré si necesitas algo más.", None, None
+
+        # No fue un sí/no claro: lo tratamos como una nueva consulta.
         return responder_tienda(texto_original)
 
     if paso == "producto_agotado":
