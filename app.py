@@ -36,7 +36,8 @@ import datetime
 import unicodedata
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, render_template, request, jsonify, session
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 
 import tienda_db
 import tienda_asistente
@@ -569,6 +570,72 @@ def nueva_conversacion():
     session.pop("historial", None)
     session.pop("pedido_en_curso", None)
     return jsonify({"ok": True})
+
+
+@app.route("/politica-privacidad")
+def politica_privacidad():
+    """
+    Política de tratamiento de datos personales (Ley 1581 de 2012 -
+    Habeas Data de Colombia), enlazada desde el mensaje de bienvenida del
+    chatbot antes de registrar cualquier dato de un cliente.
+    """
+    return render_template("politica.html", nombre_ia=NOMBRE_IA)
+
+
+# ---------------------------------------------------------------------
+# 4. PANEL ADMINISTRATIVO (Dashboard) para el personal del CBA
+# ---------------------------------------------------------------------
+# Permite ver los pedidos registrados por el chatbot, actualizar el stock
+# de los productos y cambiar el estado de un pedido (Pendiente/Entregado).
+# Protegido con autenticación básica HTTP (usuario y clave abajo).
+
+ADMIN_USUARIO = "admin"
+ADMIN_CLAVE = "CBA2026"
+
+
+def requiere_login_admin(vista):
+    @wraps(vista)
+    def envoltura(*args, **kwargs):
+        auth = request.authorization
+        if not auth or auth.username != ADMIN_USUARIO or auth.password != ADMIN_CLAVE:
+            return Response(
+                "Acceso restringido al personal del Centro de Biotecnología Agropecuaria.",
+                401,
+                {"WWW-Authenticate": 'Basic realm="Panel Dahian"'},
+            )
+        return vista(*args, **kwargs)
+    return envoltura
+
+
+@app.route("/admin")
+@requiere_login_admin
+def admin_panel():
+    return render_template(
+        "admin.html",
+        nombre_ia=NOMBRE_IA,
+        productos=tienda_db.obtener_todos(),
+        pedidos=tienda_db.obtener_pedidos(),
+    )
+
+
+@app.route("/admin/actualizar-stock", methods=["POST"])
+@requiere_login_admin
+def admin_actualizar_stock():
+    producto_id = request.form.get("producto_id", type=int)
+    nuevo_stock = request.form.get("nuevo_stock", type=int)
+    if producto_id is not None and nuevo_stock is not None:
+        tienda_db.actualizar_stock(producto_id, nuevo_stock)
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/actualizar-pedido", methods=["POST"])
+@requiere_login_admin
+def admin_actualizar_pedido():
+    pedido_id = request.form.get("pedido_id", type=int)
+    nuevo_estado = request.form.get("nuevo_estado", "")
+    if pedido_id is not None and nuevo_estado:
+        tienda_db.actualizar_estado_pedido(pedido_id, nuevo_estado)
+    return redirect(url_for("admin_panel"))
 
 
 if __name__ == "__main__":

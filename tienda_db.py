@@ -137,9 +137,9 @@ def conectar():
 
 def inicializar_db():
     """
-    Crea la tabla 'productos' si no existe y la llena con los datos de
-    demostración solo si está vacía (para no duplicar datos cada vez
-    que se reinicia el servidor).
+    Crea las tablas 'productos' y 'pedidos' si no existen, y llena
+    'productos' con los datos de demostración solo si está vacía (para no
+    duplicar datos cada vez que se reinicia el servidor).
     """
     conexion = conectar()
     cursor = conexion.cursor()
@@ -153,6 +153,27 @@ def inicializar_db():
             descripcion TEXT
         )
     """)
+    # Tabla real de pedidos: cada pedido que hace un cliente por el chat se
+    # guarda aquí (persistencia real en la base de datos relacional, no en
+    # una lista en memoria ni en el código). Incluye datos de contacto
+    # (teléfono/WhatsApp y/o correo) para que un asesor pueda comunicarse
+    # con el cliente, y el registro de que aceptó el tratamiento de datos
+    # (Ley 1581 de 2012 / Habeas Data) antes de guardar su información.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            producto_id INTEGER NOT NULL,
+            producto_nombre TEXT NOT NULL,
+            cantidad INTEGER NOT NULL,
+            total INTEGER NOT NULL,
+            cliente_nombre TEXT NOT NULL,
+            cliente_contacto TEXT NOT NULL,
+            acepto_tratamiento_datos INTEGER NOT NULL DEFAULT 0,
+            estado TEXT NOT NULL DEFAULT 'Pendiente',
+            fecha TEXT NOT NULL,
+            FOREIGN KEY (producto_id) REFERENCES productos (id)
+        )
+    """)
     cursor.execute("SELECT COUNT(*) FROM productos")
     total = cursor.fetchone()[0]
     if total == 0:
@@ -161,6 +182,61 @@ def inicializar_db():
             PRODUCTOS_DEMO,
         )
         conexion.commit()
+    conexion.close()
+
+
+def crear_pedido(producto_id, producto_nombre, cantidad, total, cliente_nombre, cliente_contacto):
+    """
+    Guarda un pedido real en la base de datos (tabla 'pedidos') y descuenta
+    la cantidad pedida del stock del producto, para que el inventario
+    refleje la venta. Devuelve el id del pedido creado.
+    """
+    import datetime
+    conexion = conectar()
+    cursor = conexion.cursor()
+    cursor.execute(
+        """
+        INSERT INTO pedidos
+            (producto_id, producto_nombre, cantidad, total, cliente_nombre,
+             cliente_contacto, acepto_tratamiento_datos, estado, fecha)
+        VALUES (?, ?, ?, ?, ?, ?, 1, 'Pendiente', ?)
+        """,
+        (
+            producto_id, producto_nombre, cantidad, total, cliente_nombre,
+            cliente_contacto, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+    pedido_id = cursor.lastrowid
+    cursor.execute(
+        "UPDATE productos SET stock = MAX(stock - ?, 0) WHERE id = ?",
+        (cantidad, producto_id),
+    )
+    conexion.commit()
+    conexion.close()
+    return pedido_id
+
+
+def obtener_pedidos():
+    """Devuelve todos los pedidos registrados, del más reciente al más antiguo."""
+    conexion = conectar()
+    filas = conexion.execute("SELECT * FROM pedidos ORDER BY id DESC").fetchall()
+    conexion.close()
+    return [dict(f) for f in filas]
+
+
+def actualizar_estado_pedido(pedido_id, nuevo_estado):
+    """Cambia el estado de un pedido (ej. 'Pendiente' -> 'Entregado')."""
+    conexion = conectar()
+    conexion.execute("UPDATE pedidos SET estado = ? WHERE id = ?", (nuevo_estado, pedido_id))
+    conexion.commit()
+    conexion.close()
+
+
+def actualizar_stock(producto_id, nuevo_stock):
+    """Actualiza manualmente el stock de un producto (usado desde el panel administrativo)."""
+    conexion = conectar()
+    conexion.execute("UPDATE productos SET stock = ? WHERE id = ?", (max(int(nuevo_stock), 0), producto_id))
+    conexion.commit()
     conexion.close()
 
 

@@ -193,6 +193,31 @@ PALABRAS_SI = [
 PALABRAS_NO = ["no", "no gracias", "todavia no", "todavía no", "ahora no", "despues", "después"]
 
 
+def _es_si(texto_normalizado):
+    return texto_normalizado in PALABRAS_SI or any(
+        texto_normalizado == p or texto_normalizado.startswith(p + " ") for p in PALABRAS_SI
+    )
+
+
+def _es_no(texto_normalizado):
+    return texto_normalizado in PALABRAS_NO or any(texto_normalizado.startswith(p) for p in PALABRAS_NO)
+
+
+# Texto de autorización de tratamiento de datos personales, conforme a la
+# Ley 1581 de 2012 (Habeas Data) de Colombia. Se muestra ANTES de pedir el
+# nombre y el contacto del cliente, y solo si acepta se continúa guardando
+# esa información en la base de datos.
+AVISO_TRATAMIENTO_DATOS = (
+    "Antes de continuar, necesito tu autorización para el tratamiento de "
+    "datos personales (Ley 1581 de 2012 - Habeas Data). Tu nombre y datos "
+    "de contacto se usarán únicamente para que un asesor del Centro de "
+    "Biotecnología Agropecuaria (SENA) gestione tu pedido, y se guardan de "
+    "forma segura en nuestra base de datos. Puedes consultar la política de "
+    "tratamiento de datos del SENA en /politica-privacidad.\n"
+    "¿Autorizas el uso de tus datos para registrar este pedido?"
+)
+
+
 def _detalle_producto(p):
     """Arma la ficha de un producto y deja pendiente la confirmación de compra."""
     if p["stock"] <= 0:
@@ -286,11 +311,10 @@ def _continuar_flujo_compra(texto_original, estado):
     paso = estado.get("paso")
 
     if paso == "confirmar_compra":
-        texto_normalizado = _normalizar(texto_original).strip(" .!¡,")
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
 
-        if texto_normalizado in PALABRAS_SI or any(
-            texto_normalizado == p or texto_normalizado.startswith(p + " ") for p in PALABRAS_SI
-        ):
+        if _es_si(texto_normalizado):
             conexion = db.conectar()
             fila = conexion.execute("SELECT * FROM productos WHERE id = ?", (estado["producto_id"],)).fetchone()
             conexion.close()
@@ -303,7 +327,7 @@ def _continuar_flujo_compra(texto_original, estado):
                 f"(tenemos {producto['stock']} disponibles)"
             ), nuevo_estado, ["1", "2", "3", "5", "10"]
 
-        if texto_normalizado in PALABRAS_NO or any(texto_normalizado.startswith(p) for p in PALABRAS_NO):
+        if _es_no(texto_normalizado):
             return "Entendido, no inicio el pedido. ¿En qué más te puedo ayudar?", None, _opciones_categorias()
 
         # El mensaje no fue un sí/no claro: lo tratamos como una consulta
@@ -334,29 +358,95 @@ def _continuar_flujo_compra(texto_original, estado):
 
         total = cantidad * producto["precio"]
         nuevo_estado = {
-            "paso": "nombre",
+            "paso": "consentimiento",
             "producto_id": producto["id"],
             "producto_nombre": producto["nombre"],
             "cantidad": cantidad,
             "total": total,
         }
         return (
-            f"Anotado: {cantidad} unidad(es) de '{producto['nombre']}' — total {db.formatear_precio(total)}. "
-            "¿A nombre de quién registro el pedido?"
-        ), nuevo_estado, None
+            f"Anotado: {cantidad} unidad(es) de '{producto['nombre']}' — total {db.formatear_precio(total)}.\n"
+            + AVISO_TRATAMIENTO_DATOS
+        ), nuevo_estado, ["Sí, autorizo", "No autorizo"]
+
+    if paso == "consentimiento":
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+
+        if _es_si(texto_normalizado):
+            nuevo_estado = dict(estado)
+            nuevo_estado["paso"] = "nombre"
+            return "Gracias por autorizarlo. ¿A nombre de quién registro el pedido?", nuevo_estado, None
+
+        if _es_no(texto_normalizado):
+            return (
+                "Sin tu autorización no puedo registrar el pedido, ya que necesito guardar tu "
+                "nombre y contacto para que un asesor te confirme la entrega. "
+                "¿Quieres seguir viendo el catálogo de todas formas?"
+            ), None, _opciones_categorias()
+
+        return (
+            "Para continuar necesito que confirmes si autorizas o no el tratamiento de tus datos "
+            "personales (responde \"Sí, autorizo\" o \"No autorizo\")."
+        ), estado, ["Sí, autorizo", "No autorizo"]
 
     if paso == "nombre":
         nombre_cliente = texto_original.strip()
+        if not nombre_cliente:
+            return "No entendí el nombre. ¿A nombre de quién registro el pedido?", estado, None
+        nuevo_estado = dict(estado)
+        nuevo_estado["paso"] = "contacto"
+        nuevo_estado["cliente_nombre"] = nombre_cliente
+        return (
+            "Para que un asesor del Centro pueda confirmarte la entrega, escríbeme un número de "
+            "teléfono/WhatsApp o un correo electrónico de contacto."
+        ), nuevo_estado, None
+
+    if paso == "contacto":
+        contacto = texto_original.strip()
+        tiene_digitos = bool(re.search(r"\d{7,}", contacto))
+        parece_correo = "@" in contacto and "." in contacto
+        if not (tiene_digitos or parece_correo):
+            return (
+                "Ese dato no parece un teléfono ni un correo válido. Escríbeme un número de "
+                "teléfono/WhatsApp (mínimo 7 dígitos) o un correo electrónico."
+            ), estado, None
+
+        pedido_id = db.crear_pedido(
+            producto_id=estado["producto_id"],
+            producto_nombre=estado["producto_nombre"],
+            cantidad=estado["cantidad"],
+            total=estado["total"],
+            cliente_nombre=estado["cliente_nombre"],
+            cliente_contacto=contacto,
+        )
         resumen = (
-            "Pedido registrado:\n"
-            f"• Cliente: {nombre_cliente}\n"
+            f"Pedido #{pedido_id} registrado:\n"
+            f"• Cliente: {estado['cliente_nombre']}\n"
+            f"• Contacto: {contacto}\n"
             f"• Producto: {estado['producto_nombre']}\n"
             f"• Cantidad: {estado['cantidad']}\n"
             f"• Total: {db.formatear_precio(estado['total'])}\n"
-            "Un asesor del Centro de Biotecnología Agropecuaria confirmará la entrega. "
-            "¿Deseas consultar otro producto?"
+            "Un asesor del Centro de Biotecnología Agropecuaria se comunicará contigo para "
+            "confirmar la entrega. ¿Deseas consultar otro producto?"
         )
-        return resumen, None, _opciones_categorias()
+        nuevo_estado = {"paso": "post_pedido"}
+        return resumen, nuevo_estado, ["Sí", "No"]
+
+    if paso == "post_pedido":
+        texto_normalizado = _normalizar(texto_original).replace(",", " ").strip(" .!¡")
+        texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+
+        if _es_si(texto_normalizado):
+            return mensaje_bienvenida(), None, _opciones_categorias()
+
+        if _es_no(texto_normalizado):
+            return "¡Con gusto! Gracias por tu compra. Aquí estaré si necesitas algo más.", None, None
+
+        # No fue un sí/no claro: en vez de perder el contexto (y caer en una
+        # búsqueda genérica sin relación), lo tratamos como una nueva
+        # consulta de la tienda, por ejemplo el nombre de otro producto.
+        return responder_tienda(texto_original)
 
     return "¿En qué más te puedo ayudar con la tienda?", None, _opciones_categorias()
 
@@ -377,6 +467,10 @@ def mensaje_bienvenida():
     partes.extend(f"• {c}" for c in categorias)
     partes.append("")
     partes.append("Toca una categoría, o escríbeme el producto que buscas.")
+    partes.append(
+        "Si registras un pedido, tus datos se tratan conforme a nuestra política de "
+        "tratamiento de datos personales: /politica-privacidad"
+    )
     return "\n".join(partes)
 
 
