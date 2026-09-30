@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Editar pedido #{{ pedido.id }} - {{ nombre_ia }}</title>
+<style>
+    :root {
+        --verde: #8FB517;
+        --verde-oscuro: #6d8d12;
+        --verde-claro: #eef6da;
+        --texto: #2b2f22;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: var(--verde-claro);
+        color: var(--texto);
+        padding: 24px;
+    }
+    header {
+        background: var(--verde);
+        color: #fff;
+        padding: 18px 24px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+    }
+    header h1 { margin: 0; font-size: 1.4em; }
+    header p { margin: 4px 0 0; opacity: .9; font-size: .9em; }
+    .panel {
+        background: #fff;
+        border-radius: 12px;
+        padding: 24px 28px;
+        margin-bottom: 24px;
+        box-shadow: 0 4px 16px rgba(143,181,23,0.15);
+        max-width: 640px;
+    }
+    .panel h2 {
+        color: var(--verde-oscuro);
+        margin-top: 0;
+        border-bottom: 2px solid var(--verde-claro);
+        padding-bottom: 8px;
+    }
+    label {
+        display: block;
+        font-weight: 600;
+        margin: 16px 0 6px;
+        color: var(--verde-oscuro);
+        font-size: .92em;
+    }
+    input[type=text], select {
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid #cfd9b6;
+        border-radius: 6px;
+        font-size: 1em;
+        font-family: inherit;
+    }
+    .fila-2 { display: flex; gap: 16px; }
+    .fila-2 > div { flex: 1; }
+    .productos {
+        background: var(--verde-claro);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-top: 16px;
+        font-size: .92em;
+    }
+    .acciones {
+        margin-top: 24px;
+        display: flex;
+        gap: 10px;
+    }
+    button, .boton-volver {
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-block;
+    }
+    button {
+        background: var(--verde);
+        color: #fff;
+    }
+    button:hover { background: var(--verde-oscuro); }
+    .boton-volver {
+        background: #e5e5e5;
+        color: #333;
+    }
+    .boton-volver:hover { background: #d5d5d5; }
+    #campos-domicilio { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>Editar pedido #{{ pedido.id }}</h1>
+    <p>Centro de Biotecnología Agropecuaria (SENA) · {{ pedido.fecha }}</p>
+</header>
+
+<div class="panel">
+    <h2>Datos del pedido</h2>
+
+    <div class="productos">
+        <strong>Productos:</strong><br>
+        {% for item in pedido['items'] %}
+            {{ item.cantidad }} x {{ item.producto_nombre }} — ${{ "{:,.0f}".format(item.subtotal).replace(",", ".") }}<br>
+        {% endfor %}
+        <strong>Total: ${{ "{:,.0f}".format(pedido.total).replace(",", ".") }}</strong>
+    </div>
+
+    <form method="post" action="{{ url_for('admin_guardar_pedido', pedido_id=pedido.id) }}">
+        <div class="fila-2">
+            <div>
+                <label for="cliente_nombre">Nombre del cliente</label>
+                <input type="text" id="cliente_nombre" name="cliente_nombre" value="{{ pedido.cliente_nombre }}" required>
+            </div>
+            <div>
+                <label for="cliente_contacto">Contacto (teléfono/correo)</label>
+                <input type="text" id="cliente_contacto" name="cliente_contacto" value="{{ pedido.cliente_contacto }}" required>
+            </div>
+        </div>
+
+        <label for="tipo_entrega">Tipo de entrega</label>
+        <select id="tipo_entrega" name="tipo_entrega" onchange="mostrarCamposDomicilio()">
+            <option value="Recoge en el Centro" {% if pedido.tipo_entrega != "Domicilio" %}selected{% endif %}>Recoge en el Centro</option>
+            <option value="Domicilio" {% if pedido.tipo_entrega == "Domicilio" %}selected{% endif %}>Domicilio</option>
+        </select>
+
+        <div id="campos-domicilio">
+            <label for="municipio_domicilio">Municipio</label>
+            <select id="municipio_domicilio" name="municipio_domicilio">
+                <option value="Mosquera" {% if pedido.municipio_domicilio == "Mosquera" %}selected{% endif %}>Mosquera</option>
+                <option value="Funza" {% if pedido.municipio_domicilio == "Funza" %}selected{% endif %}>Funza</option>
+            </select>
+
+            <div class="fila-2">
+                <div>
+                    <label for="direccion_domicilio">Dirección</label>
+                    <input type="text" id="direccion_domicilio" name="direccion_domicilio" value="{{ pedido.direccion_domicilio or '' }}">
+                </div>
+                <div>
+                    <label for="barrio_domicilio">Barrio/localidad</label>
+                    <input type="text" id="barrio_domicilio" name="barrio_domicilio" value="{{ pedido.barrio_domicilio or '' }}">
+                </div>
+            </div>
+        </div>
+
+        <label for="medio_pago">Medio de pago</label>
+        <select id="medio_pago" name="medio_pago">
+            {% for medio in medios_pago %}
+            <option value="{{ medio }}" {% if pedido.medio_pago == medio %}selected{% endif %}>{{ medio }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="estado">Estado del pedido</label>
+        <select id="estado" name="estado">
+            <option value="Pendiente" {% if pedido.estado == "Pendiente" %}selected{% endif %}>Pendiente</option>
+            <option value="Entregado" {% if pedido.estado == "Entregado" %}selected{% endif %}>Entregado</option>
+        </select>
+
+        <div class="acciones">
+            <button type="submit">Guardar cambios</button>
+            <a class="boton-volver" href="{{ url_for('admin_panel') }}">Cancelar</a>
+        </div>
+    </form>
+</div>
+
+<script>
+function mostrarCamposDomicilio() {
+    var tipo = document.getElementById('tipo_entrega').value;
+    document.getElementById('campos-domicilio').style.display = (tipo === 'Domicilio') ? 'block' : 'none';
+}
+mostrarCamposDomicilio();
+</script>
+
+</body>
+</html>

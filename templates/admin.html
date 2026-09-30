@@ -63,6 +63,17 @@
         font-weight: 600;
     }
     button:hover { background: var(--verde-oscuro); }
+    .boton-editar {
+        background: var(--verde);
+        color: #fff;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-block;
+    }
+    .boton-editar:hover { background: var(--verde-oscuro); }
     .estado {
         padding: 3px 10px;
         border-radius: 12px;
@@ -108,14 +119,7 @@
             <td>{{ pedido.medio_pago or "—" }}</td>
             <td><span class="estado {{ pedido.estado }}">{{ pedido.estado }}</span></td>
             <td>
-                <form method="post" action="/admin/actualizar-pedido" style="display:flex; gap:6px;">
-                    <input type="hidden" name="pedido_id" value="{{ pedido.id }}">
-                    <select name="nuevo_estado">
-                        <option value="Pendiente" {% if pedido.estado == "Pendiente" %}selected{% endif %}>Pendiente</option>
-                        <option value="Entregado" {% if pedido.estado == "Entregado" %}selected{% endif %}>Entregado</option>
-                    </select>
-                    <button type="submit">Guardar</button>
-                </form>
+                <a class="boton-editar" href="{{ url_for('admin_editar_pedido', pedido_id=pedido.id) }}">Editar</a>
             </td>
         </tr>
         {% endfor %}
