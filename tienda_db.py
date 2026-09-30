@@ -170,6 +170,8 @@ def inicializar_db():
             acepto_tratamiento_datos INTEGER NOT NULL DEFAULT 0,
             tipo_entrega TEXT NOT NULL DEFAULT 'Recoge en el Centro',
             municipio_domicilio TEXT,
+            direccion_domicilio TEXT,
+            barrio_domicilio TEXT,
             medio_pago TEXT,
             estado TEXT NOT NULL DEFAULT 'Pendiente',
             fecha TEXT NOT NULL
@@ -199,6 +201,10 @@ def inicializar_db():
         cursor.execute("ALTER TABLE pedidos ADD COLUMN municipio_domicilio TEXT")
     if "medio_pago" not in columnas_pedidos:
         cursor.execute("ALTER TABLE pedidos ADD COLUMN medio_pago TEXT")
+    if "direccion_domicilio" not in columnas_pedidos:
+        cursor.execute("ALTER TABLE pedidos ADD COLUMN direccion_domicilio TEXT")
+    if "barrio_domicilio" not in columnas_pedidos:
+        cursor.execute("ALTER TABLE pedidos ADD COLUMN barrio_domicilio TEXT")
     conexion.commit()
 
     cursor.execute("SELECT COUNT(*) FROM productos")
@@ -213,7 +219,8 @@ def inicializar_db():
 
 
 def crear_pedido(items, cliente_nombre, cliente_contacto, tipo_entrega="Recoge en el Centro",
-                  municipio_domicilio=None, medio_pago=None):
+                  municipio_domicilio=None, medio_pago=None, direccion_domicilio=None,
+                  barrio_domicilio=None):
     """
     Guarda un pedido real (con uno o varios productos, es decir un carrito
     de compras) en la base de datos: un registro en 'pedidos' (encabezado)
@@ -231,12 +238,14 @@ def crear_pedido(items, cliente_nombre, cliente_contacto, tipo_entrega="Recoge e
         """
         INSERT INTO pedidos
             (total, cliente_nombre, cliente_contacto, acepto_tratamiento_datos,
-             tipo_entrega, municipio_domicilio, medio_pago, estado, fecha)
-        VALUES (?, ?, ?, 1, ?, ?, ?, 'Pendiente', ?)
+             tipo_entrega, municipio_domicilio, direccion_domicilio, barrio_domicilio,
+             medio_pago, estado, fecha)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 'Pendiente', ?)
         """,
         (
             total, cliente_nombre, cliente_contacto, tipo_entrega, municipio_domicilio,
-            medio_pago, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            direccion_domicilio, barrio_domicilio, medio_pago,
+            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         ),
     )
     pedido_id = cursor.lastrowid
