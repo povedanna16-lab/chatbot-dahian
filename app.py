@@ -510,19 +510,24 @@ def generar_respuesta(mensaje_usuario, historial=None, pedido_en_curso=None):
     if tienda_asistente.detectar_consulta_tienda(texto_normalizado):
         return tienda_asistente.responder_tienda(mensaje_usuario)
 
-    # A partir de aquí, la pregunta necesita conocimiento general.
-    # Si hay una API Key de Gemini configurada, usamos la IA real primero.
-    if gemini_configurado():
-        try:
-            return preguntar_a_gemini(mensaje_usuario, historial or []), None, None
-        except Exception as e:
-            # Mostramos el motivo real en la terminal (consola) para poder
-            # diagnosticar por qué falló Gemini, en vez de fallar en
-            # silencio. El chat sigue funcionando gracias al respaldo.
-            print(f"[{NOMBRE_IA}] Gemini falló, usando respaldo de búsqueda. Motivo: {e}")
-
-    # Respaldo: búsqueda de fragmentos en DuckDuckGo / Wikipedia.
-    return buscar_en_internet(texto), None, None
+    # A partir de aquí, la pregunta NO tiene que ver con la tienda. Antes,
+    # este caso se respondía con IA general (Gemini) o con una búsqueda en
+    # internet (DuckDuckGo/Wikipedia) — eso era justamente la causa de la
+    # "desconexión contextual y alucinación de la IA" que señaló el
+    # instructor: Dahian se salía de su rol de asistente de la tienda del
+    # CBA y devolvía definiciones de diccionario u otro contenido sin
+    # relación con el negocio. Para evitarlo, Dahian se mantiene siempre
+    # dentro de su rol y redirige cualquier pregunta ajena a la tienda de
+    # vuelta al catálogo, en vez de intentar responderla con conocimiento
+    # general.
+    categorias = tienda_db.obtener_categorias()
+    return (
+        "Soy Dahian, el asistente de la tienda del Centro de Biotecnología "
+        "Agropecuaria (SENA), y solo puedo ayudarte con temas de nuestra tienda: "
+        "productos, precios, disponibilidad y pedidos. "
+        f"Estas son nuestras categorías: {', '.join(categorias)}. "
+        "¿Sobre cuál te gustaría preguntar?"
+    ), None, categorias
 
 
 # ---------------------------------------------------------------------
