@@ -304,6 +304,14 @@ def actualizar_stock(producto_id, nuevo_stock):
     conexion.close()
 
 
+def actualizar_precio(producto_id, nuevo_precio):
+    """Actualiza manualmente el precio de un producto (usado desde el panel administrativo)."""
+    conexion = conectar()
+    conexion.execute("UPDATE productos SET precio = ? WHERE id = ?", (max(int(nuevo_precio), 0), producto_id))
+    conexion.commit()
+    conexion.close()
+
+
 def obtener_todos():
     """Devuelve todos los productos como lista de diccionarios."""
     conexion = conectar()
